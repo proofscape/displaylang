@@ -92,7 +92,7 @@ class DisplayLangEvaluator(ExpressionEvaluator):
                 for i in address:
                     try:
                         v = v[i]
-                    except IndexError:
+                    except (IndexError, TypeError):
                         msg = 'Cannot unpack assignment.'
                         reject(msg, node)
                 self.add_current_name(target_name, v)
@@ -365,7 +365,7 @@ class DisplayLangProcessor:
             # We want such exceptions to be wrapped in `ControlledEvaluationException`
             # and re-raised in this form.
             except Exception as e:
-                raise ControlledEvaluationException(str(e)) from e
+                raise ControlledEvaluationException(repr(e)) from e
             if isinstance(result, ast.Return):
                 val = result.value
                 if not isinstance(val, str):

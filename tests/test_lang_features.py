@@ -218,18 +218,25 @@ def test_all_brackets_cumulative_depth(code, max_depth):
     assert all_brackets_cumulative_depth(code) == max_depth
 
 
-@pytest.mark.parametrize('code', [
+@pytest.mark.parametrize('code, err_msg', [
     # Can't format a float as an integer:
-    "f'{1.23:d}'",
+    ["f'{1.23:d}'", '''ValueError("Unknown format code 'd' for object of type 'float'")'''],
     # Can't do unpacking in an augmented assignment:
-    'a, b := 1, 2',
+    ['a, b := 1, 2', '''Error parsing display widget build code.
+invalid syntax (<unknown>, line 1)'''],
     # Can't assign to a set:
-    '{a, b, c} = {1, 2, 3}',
+    ['{a, b, c} = {1, 2, 3}', '''Error parsing display widget build code.
+cannot assign to set display (<unknown>, line 1)'''],
     # Failures to unpack:
-    'a, b = 1',
-    'a, (b, c) = 1, 2',
+    ['a, b = 1', '''Cannot unpack assignment.
+At line 1, column 0.'''],
+    ['a, (b, c) = 1, 2', '''Cannot unpack assignment.
+At line 1, column 0.'''],
+    # KeyError:
+    ['{}[3]', 'KeyError(3)'],
 ])
-def test_misc_errors(code):
+def test_misc_errors(code, err_msg):
     code += '\nreturn "foo"'
-    with pytest.raises(ControlledEvaluationException):
+    with pytest.raises(ControlledEvaluationException) as e:
         process_displaylang(code, {}, {}, [], add_builtins=True)
+    assert str(e.value) == err_msg
