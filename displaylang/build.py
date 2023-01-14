@@ -219,7 +219,7 @@ class DisplayLangEvaluator(ExpressionEvaluator):
         for name in names:
             if name in prev_bound_values:
                 self.bound_vars[name] = prev_bound_values[name]
-            else:
+            elif name in self.bound_vars:
                 del self.bound_vars[name]
 
         return L

@@ -147,6 +147,11 @@ build_13 = """
 return str(a + b + c + f + g[0] + g[1] + p[0])
 """
 
+build_14 = """
+# This involves an empty comprehension:
+return str(['foo' for r in range(2, 2)])
+"""
+
 
 @pytest.mark.parametrize('code, s_exp, d_exp', [
     [build_00, 'foobar', {'s': 'foo', 't': 'foobar'}],
@@ -163,6 +168,7 @@ return str(a + b + c + f + g[0] + g[1] + p[0])
     [build_11, '7 -7 False -8 False True', {}],
     [build_12, '2', {'a': 2}],
     [build_13, '13', {'a': 1, 'b': 2, 'c': 3, 'f': 1, 'g': (2, 3), 'p': [1, (2, 3)]}],
+    [build_14, '[]', {}],
 ])
 def test_build(code, s_exp, d_exp):
     s, d = process_displaylang(code, {}, {}, [], add_builtins=True)
