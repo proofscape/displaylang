@@ -16,7 +16,9 @@
 #   limitations under the License.                                            #
 # --------------------------------------------------------------------------- #
 
-from typing import Any, List, Tuple, Dict, Sequence, Optional as o, Union as u
+from typing import (
+    Any, Iterable, List, Tuple, Dict, Sequence, Optional as o, Union as u
+)
 from .allow import (
     ArgSpec as a,
     AllowedCallable as c,
@@ -30,12 +32,17 @@ from .allow import (
 # in `process_displaylang()` if you set `add_builtins=True` there. They will
 # also be added to the set of allowed callables in this case.
 basic_callables = [
+    c(len, [
+        [Iterable],
+        [s.ANY],
+    ]),
     c(range, [t(int)]),
     c(str, [Any]),
     c(sum, [
         [Sequence],
         [Sequence, Any],
     ]),
+    c(zip, [t(Iterable)]),
 ]
 
 # While the "other callables" will not be added to `basic_vars`, they will be

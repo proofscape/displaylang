@@ -23,6 +23,8 @@ from displaylang.build import basic_displaylang_processor
 
 
 @pytest.mark.parametrize('code', [
+    'len([1, 2, 3])',
+    'len("foo")',
     'range(3)',
     'range(1, 4)',
     'range(1, 5, 2)',
@@ -30,6 +32,7 @@ from displaylang.build import basic_displaylang_processor
     'str([1, 2, 3])',
     'sum([1, 2, 3])',
     'sum([1, 2, 3], 4)',
+    'zip([1, 2, 3], [4, 5, 6])',
     '[1, 2, 3].append(True)',
     '[1, 2, 3].extend([True, False])',
     '",".join(["foo", "bar"])',
@@ -48,9 +51,11 @@ def test_allow_call(code):
 
 
 @pytest.mark.parametrize('code', [
+    'len(True)',
     'range("3")',
     'str(1, 2)',
     'sum(1, 2, 3)',
+    'zip([1, 2, 3], True)',
     '[1, 2, 3].append(True, False)',
     '[1, 2, 3].extend(True)',
     '",".join([1, 2, 3])',
