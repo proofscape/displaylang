@@ -1,3 +1,9 @@
+## 0.23.0 (------)
+
+Improvements:
+
+* Added support for built-ins: `len()`, `zip()`.
+
 ## 0.22.9 (230115)
 
 Improvements:
