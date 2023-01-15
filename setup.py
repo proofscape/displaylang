@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="displaylang",
-    version="0.22.9",
+    version="0.23.0b1",
     license="Apache 2.0",
     url="https://github.com/proofscape/displaylang",
     description="Just enough Python to write displays",
