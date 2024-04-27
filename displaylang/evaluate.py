@@ -391,6 +391,13 @@ class ControlledEvaluator(ast.NodeTransformer):
             logging.info('<called as local var>')
             return F(*A, **K)
 
+        # Here, I'm adding the `F.evaluator is self` check just as a sort of security measure.
+        # Don't know if it's really needed or not, but seems like a good check, so that we're
+        # not somehow passed some renegade `NestedCodeBlockProcessor`.
+        if isinstance(F, NestedCodeBlockProcessor) and F.evaluator is self:
+            logging.info('<called as NestedCodeBlockProcessor>')
+            return F(*A, **K)
+
         if type(F) in self.dunder_callables:
             logging.info('<called as dunder callable>')
             A = [F] + A
@@ -590,3 +597,18 @@ def evaluate_expression(expression_evaluator, s):
     node = ast.parse(s)
     node = ast.Expr(node.body[0].value)
     return expression_evaluator.visit(node)
+
+
+class NestedCodeBlockProcessor:
+    """
+    Abstract base class, defined here to help break cyclic import issues.
+    The important subclass is `DisplayLangNestedCodeBlockProcessor`, defined in build.py,
+    but we need the class for an `isinstance()` check here in evaluate.py, in `ControlledEvaluator`.
+    """
+
+    def __init__(self, evaluator):
+        """
+        :param evaluator: the ControlledEvaluator that wants to process a nested
+            code block.
+        """
+        self.evaluator = evaluator

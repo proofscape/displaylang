@@ -29,7 +29,7 @@ from .builtins import (
     other_callables as builtin_other_callables,
 )
 from .depth import check_displaylang_dims
-from .evaluate import ExpressionEvaluator, reject
+from .evaluate import ExpressionEvaluator, reject, NestedCodeBlockProcessor
 from .exceptions import ControlledEvaluationException
 
 
@@ -273,15 +273,23 @@ class DisplayLangEvaluator(ExpressionEvaluator):
         raise DisplayLangContinueException
 
     def visit_FunctionDef(self, node):
-        print('bar')
+        self.recurse(node, fields=['args'])
+        p = DisplayLangNestedCodeBlockProcessor(self, node.body,
+                                                signature=node.args, return_just_value=True)
+        name = node.name
+        self.add_current_name(node.name, p)
+        return Assignment(name, p)
 
-        # TODO: Remember to set `allow_local_var_calls` to True this time.
+    def visit_arguments(self, node):
+        self.recurse(node)
+        return node
 
-        ...  # TODO
+    def visit_arg(self, node):
+        return node.arg
 
     def visit_For(self, node):
         self.recurse(node, fields=['iter'])
-        p = NestedCodeBlockProcessor(self, node.body)
+        p = DisplayLangNestedCodeBlockProcessor(self, node.body)
         for value in node.iter:
             asgn = ast.Assign([node.target], value)
             self.visit_Assign(asgn, use_prebuilt_value=True, prebuilt_value=value)
@@ -293,19 +301,19 @@ class DisplayLangEvaluator(ExpressionEvaluator):
                 continue
         else:
             if node.orelse:
-                p = NestedCodeBlockProcessor(self, node.orelse)
+                p = DisplayLangNestedCodeBlockProcessor(self, node.orelse)
                 p()
 
     def visit_If(self, node):
         self.recurse(node, fields=['test'])
         code = node.body if node.test else node.orelse
-        p = NestedCodeBlockProcessor(self, code)
+        p = DisplayLangNestedCodeBlockProcessor(self, code)
         r, _ = p()
         # Not sure there's actually any need to return anything here...
         return r
 
 
-class NestedCodeBlockProcessor:
+class DisplayLangNestedCodeBlockProcessor(NestedCodeBlockProcessor):
     """
     Forms an object which can be invoked (called) in order to evaluate a nested code
     block, as found in function definitions, and control structures like for-loops
@@ -315,7 +323,7 @@ class NestedCodeBlockProcessor:
     is ever processed and transformed by the evaluation process.
     """
 
-    def __init__(self, evaluator, body, signature=None, allow_local_var_calls=None):
+    def __init__(self, evaluator, body, signature=None, return_just_value=False):
         """
         :param evaluator: the DisplayLangEvaluator that wants to process a nested
             code block.
@@ -323,15 +331,60 @@ class NestedCodeBlockProcessor:
             to be processed.
         :param signature: optional `ast.arguments` node, representing expected
             arguments that can be passed into the evaluation.
-        :param allow_local_var_calls: determines the value that will be passed to
-            the corresponding kwarg of the `process_displaylang()` function. If boolean,
-            exactly this value will be passed; if None, then pass the value of this field
-            stored in self.evaluator.
         """
-        self.evaluator = evaluator
+        NestedCodeBlockProcessor.__init__(self, evaluator)
         self.body = body
         self.signature = signature
-        self.allow_local_var_calls = allow_local_var_calls
+        self.return_just_value = return_just_value
+
+    def receive_args(self, *args, **kwargs):
+        """
+        Our job is to interpret the passed args and kwargs according to `self.signature`
+        (which is an ast.arguments in which all of the subfields have been evaluated
+        already), and then store the results as local vars in `self.evaluator`.
+
+        FOR NOW: We are only interpreting the `args` and `defaults` in the signature.
+        This means that we are currently ignoring `kw_defaults`, `kwarg`, `kwonlyargs`,
+        `posonlyargs`, and `vararg`. So, right now, the only type of function signature
+        we support is one with a finite list of pos args, followed immediately (no star)
+        by a finite set of kwargs. In the future, we can try to support everything.
+        """
+
+        # FIXME:
+        #  Should we just be reusing our AllowedCallable class here?
+        #  Didn't we already do all the work of receiving a set of expected arguments?
+
+        sig = self.signature
+        n0 = len(sig.args)
+        k0 = len(sig.defaults)
+        a0 = n0 - k0
+        args0 = sig.args[:a0]
+        kwargs0 = {k: v for k, v in zip(sig.args[-k0:], sig.defaults)}
+
+        a1 = len(args)
+        k1 = len(kwargs)
+        n1 = a1 + k1
+
+        if a1 < a0:
+            raise TypeError(f'Not enough positional args. Expecting {args0}.')
+        if n1 > n0:
+            raise TypeError(f'Too many args. Expecting {sig.args}.')
+
+        keys0 = set(kwargs0.keys())
+        keys1 = set(kwargs.keys())
+        X = keys1 - keys0
+        if X:
+            raise TypeError(f'Unexpected keyword arguments {X}. Expecting {keys0}.')
+
+        new_vars = {}
+        new_vars.update({
+            k: v for k, v in zip(sig.args, args)
+        })
+        for k in sig.args[a1:]:
+            new_vars[k] = kwargs.get(k, kwargs0[k])
+
+        for k, v in new_vars.items():
+            self.evaluator.add_current_name(k, v)
 
     def __call__(self, *args, **kwargs):
         """
@@ -339,22 +392,18 @@ class NestedCodeBlockProcessor:
         return value.
         """
         if self.signature:
-            # TODO: interpret the passed args and kwargs according to the signature,
-            #   setting these vars into the local vars of self.evaluator
-            ...
+            self.receive_args(*args, **kwargs)
         code = copy.deepcopy(self.body)
-        return process_displaylang(
+        ret_val, loc_vars = process_displaylang(
             code, self.evaluator.basic_vars, self.evaluator.local_vars,
             self.evaluator.allowed_callables.values(),
             add_builtins=False,
-            allow_local_var_calls=(
-                self.evaluator.allow_local_var_calls if self.allow_local_var_calls is None
-                else self.allow_local_var_calls
-            ),
+            allow_local_var_calls=self.evaluator.allow_local_var_calls,
             abstract_function_classes=self.evaluator.abstract_function_classes,
             abstract_relation_classes=self.evaluator.abstract_relation_classes,
             require_returned_str=False
         )
+        return ret_val if self.return_just_value else (ret_val, loc_vars)
 
 
 SUPPORTED_STATEMENT_TYPES = (
