@@ -152,6 +152,74 @@ build_14 = """
 return str(['foo' for r in range(2, 2)])
 """
 
+build_15 = """
+def foo(a, b, c=7):
+    d = 2*a
+    return b + c + d
+return str(foo(3, 5))
+"""
+
+build_16 = """
+if 3 > 7:
+    x = 2
+elif 1 > 9:
+    x = 3
+else:
+    x = 4
+return str(x)
+"""
+
+build_17 = """
+n = 0
+for a, b in zip([1, 2, 3], [1, 4, 9]):
+    n += a + b
+return str(n)
+"""
+
+build_18 = """
+x = 4
+if 3 > 7:
+    x = 2
+return str(x)
+"""
+
+build_19 = """
+n = 0
+for a, b in zip([1, 2, 3], [1, 4, 9]):
+    n += a + b
+    if n > 5:
+        break
+else:
+    n = 1
+return str(n)
+"""
+
+build_20 = """
+n = 0
+for a, b in zip([1, 2, 3], [1, 4, 9]):
+    n += a + b
+    if n > 30:
+        break
+else:
+    n = 1
+return str(n)
+"""
+
+build_21 = """
+n = 0
+for a, b in zip([1, 2, 3], [1, 4, 9]):
+    if a % 2 == 1:
+        continue
+    n += a + b
+return str(n)
+"""
+
+
+# XXX
+ONE_CASE = 16
+#
+
+
 
 @pytest.mark.parametrize('code, s_exp, d_exp', [
     [build_00, 'foobar', {'s': 'foo', 't': 'foobar'}],
@@ -169,7 +237,14 @@ return str(['foo' for r in range(2, 2)])
     [build_12, '2', {'a': 2}],
     [build_13, '13', {'a': 1, 'b': 2, 'c': 3, 'f': 1, 'g': (2, 3), 'p': [1, (2, 3)]}],
     [build_14, '[]', {}],
-])
+    [build_15, '18', {}],
+    [build_16, '4', {'x': 4}],
+    [build_17, '20', {'n': 20, 'a': 3, 'b': 9}],
+    [build_18, '4', {'x': 4}],
+    [build_19, '8', {'n': 8, 'a': 2, 'b': 4}],
+    [build_20, '1', {'n': 1, 'a': 3, 'b': 9}],
+    [build_21, '6', {'n': 6, 'a': 3, 'b': 9}],
+][ONE_CASE:ONE_CASE+1])
 def test_build(code, s_exp, d_exp):
     s, d = process_displaylang(code, {}, {}, [], add_builtins=True)
     interactive = False

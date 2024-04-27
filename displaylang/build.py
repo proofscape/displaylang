@@ -76,14 +76,19 @@ class DisplayLangEvaluator(ExpressionEvaluator):
     # Supported statement types.
     # (ast.Expr is already supported in our subclass.)
 
-    def visit_Assign(self, node):
+    def visit_Assign(self, node, use_prebuilt_value=False, prebuilt_value=None):
         """
         Handle any type of assignment, including multiple and unpacking.
         Each assignment is recorded as a local var, available for subsequent
         statements.
         Return list of `Assignment` instances.
+
+        The kwargs concerning "prebuilt values" help us re-use this method in
+        places like our `visit_For` method. The reason we need a separate `user_prebuilt_value`
+        kwarg is because we can't rely on truthiness of the `prebuilt_value` kwarg to tell
+        us whether we want to use it; the desired value could be e.g. False, None, etc.
         """
-        built_value = self.visit(node.value)
+        built_value = prebuilt_value if use_prebuilt_value else self.visit(node.value)
         assignments = []
         for target in node.targets:
             addresses = self.unpack_assignment_target(target, node)
@@ -259,6 +264,115 @@ class DisplayLangEvaluator(ExpressionEvaluator):
                 s += t.format(val)
         return s
 
+    ###########################################################################
+
+    def visit_Break(self, node):
+        raise DisplayLangBreakException
+
+    def visit_Continue(self, node):
+        raise DisplayLangContinueException
+
+    def visit_FunctionDef(self, node):
+        print('bar')
+
+        # TODO: Remember to set `allow_local_var_calls` to True this time.
+
+        ...  # TODO
+
+    def visit_For(self, node):
+        self.recurse(node, fields=['iter'])
+        p = NestedCodeBlockProcessor(self, node.body)
+        for value in node.iter:
+            asgn = ast.Assign([node.target], value)
+            self.visit_Assign(asgn, use_prebuilt_value=True, prebuilt_value=value)
+            try:
+                p()
+            except DisplayLangBreakException:
+                break
+            except DisplayLangContinueException:
+                continue
+        else:
+            if node.orelse:
+                p = NestedCodeBlockProcessor(self, node.orelse)
+                p()
+
+    def visit_If(self, node):
+        self.recurse(node, fields=['test'])
+        code = node.body if node.test else node.orelse
+        p = NestedCodeBlockProcessor(self, code)
+        r, _ = p()
+        # Not sure there's actually any need to return anything here...
+        return r
+
+
+class NestedCodeBlockProcessor:
+    """
+    Forms an object which can be invoked (called) in order to evaluate a nested code
+    block, as found in function definitions, and control structures like for-loops
+    and if-else structures.
+
+    May be invoked multiple times, since only a *deep copy* of the nested code block
+    is ever processed and transformed by the evaluation process.
+    """
+
+    def __init__(self, evaluator, body, signature=None, allow_local_var_calls=None):
+        """
+        :param evaluator: the DisplayLangEvaluator that wants to process a nested
+            code block.
+        :param body: list of ast statement nodes, representing the block of code
+            to be processed.
+        :param signature: optional `ast.arguments` node, representing expected
+            arguments that can be passed into the evaluation.
+        :param allow_local_var_calls: determines the value that will be passed to
+            the corresponding kwarg of the `process_displaylang()` function. If boolean,
+            exactly this value will be passed; if None, then pass the value of this field
+            stored in self.evaluator.
+        """
+        self.evaluator = evaluator
+        self.body = body
+        self.signature = signature
+        self.allow_local_var_calls = allow_local_var_calls
+
+    def __call__(self, *args, **kwargs):
+        """
+        Call the `process_displaylang()` function on the code block, and return its
+        return value.
+        """
+        if self.signature:
+            # TODO: interpret the passed args and kwargs according to the signature,
+            #   setting these vars into the local vars of self.evaluator
+            ...
+        code = copy.deepcopy(self.body)
+        return process_displaylang(
+            code, self.evaluator.basic_vars, self.evaluator.local_vars,
+            self.evaluator.allowed_callables.values(),
+            add_builtins=False,
+            allow_local_var_calls=(
+                self.evaluator.allow_local_var_calls if self.allow_local_var_calls is None
+                else self.allow_local_var_calls
+            ),
+            abstract_function_classes=self.evaluator.abstract_function_classes,
+            abstract_relation_classes=self.evaluator.abstract_relation_classes,
+            require_returned_str=False
+        )
+
+
+SUPPORTED_STATEMENT_TYPES = (
+    ast.Assign, ast.AugAssign, ast.Expr, ast.Return,
+    ast.FunctionDef, ast.For, ast.If,
+    ast.Break, ast.Continue,
+)
+
+
+class DisplayLangBreakException(Exception):
+    """Raised when a `break` statement is encountered."""
+    ...
+
+
+class DisplayLangContinueException(Exception):
+    """Raised when a `continue` statement is encountered."""
+    ...
+
 
 class DisplayLangProcessor:
     """
@@ -282,19 +396,26 @@ class DisplayLangProcessor:
         self.max_len = max_len
         self.max_depth = max_depth
 
-    def process(self, code, local_vars):
+    def process(self, code, local_vars, require_returned_str=True):
         """
-        Evaluate a string of DisplayLang, and return the generated HTML string,
+        Evaluate some DisplayLang, and return the generated HTML string,
         plus dictionary of newly defined symbols.
 
-        :param code: str
-            The string of DisplayLang that is to be processed.
+        :param code: str, or list of ast nodes
+            Either a string of DisplayLang that still needs to be parsed, or
+            a list of ast nodes representing statements, as results from the
+            parsing process, and typically represents the `body` element of
+            an ast.Module or other control structure, like ast.For or ast.If.
 
         :param local_vars: dict
             The initial local vars that are defined at the start of the
             evaluation. Note: will be extended by any new vars that are defined
             by the DisplayLang code being processed. Pass a copy if you don't
             want the dict to be modified.
+
+        :param require_returned_str: boolean
+            If True (the default) then the given code is required to return a
+            string. If False, then it is not.
 
         :returns: pair (str, dict)
             The string constructed by the code, and the dictionary of all local
@@ -306,8 +427,8 @@ class DisplayLangProcessor:
             if...
                 ...the code is too long or too deep;
                 ...Python AST parser reports a SyntaxError in the code;
-                ...the code contains any statement type other than Assignment,
-                    Expr, or Return;
+                ...the code contains any statement type other than those listed
+                    in the SUPPORTED_STATEMENT_TYPES;
                 ...we encounter a Python AST node type that is not supported, i.e.
                     the code goes outside the subset of Python we support;
                 ...an attempt is made to call a callable that is not allowed;
@@ -316,38 +437,49 @@ class DisplayLangProcessor:
                 ...anything goes wrong during building. In particular, this
                     includes the case that the python code contains not a syntax
                     but a runtime error;
+            and, if `require_returned_str` True, then if...
                 ...the return value of the code is not a string;
                 ...the code has no return value.
         """
-        check_displaylang_dims(code, max_len=self.max_len, max_depth=self.max_depth)
+        # Obtain list of statement nodes
+        statement_nodes = []
+        if isinstance(code, list):
+            statement_nodes = code
+        elif isinstance(code, str):
+            check_displaylang_dims(code, max_len=self.max_len, max_depth=self.max_depth)
 
-        try:
-            node = ast.parse(code)
-        except (SyntaxError, MemoryError) as e:
-            # SyntaxError should correspond to a Python syntax error in the given
-            # code. MemoryError should be raised if the code has excessive
-            # complexity, e.g. 300 nested lists etc. We have tried to already
-            # catch such cases with the call to `check_display_build_dims`, but
-            # this is a second chance to try to catch it.
-            msg = 'Error parsing display widget build code.\n' + str(e)
-            raise ControlledEvaluationException(msg) from e
+            try:
+                node = ast.parse(code)
+            except (SyntaxError, MemoryError) as e:
+                # SyntaxError should correspond to a Python syntax error in the given
+                # code. MemoryError should be raised if the code has excessive
+                # complexity, e.g. 300 nested lists etc. We have tried to already
+                # catch such cases with the call to `check_display_build_dims`, but
+                # this is a second chance to try to catch it.
+                msg = 'Error parsing display widget build code.\n' + str(e)
+                raise ControlledEvaluationException(msg) from e
 
-        if not isinstance(node, ast.Module):
-            reject('Outer node should be a Module.')
+            if not isinstance(node, ast.Module):
+                reject('Outer node should be a Module.')
 
-        for i, stmt in enumerate(node.body):
-            if not isinstance(stmt, (ast.Assign, ast.AugAssign, ast.Expr, ast.Return)):
-                msg = 'Only assignment, expression, and return statements are allowed'
-                msg += f' in DisplayLang, but statement {i} (zero-based) is a {stmt.__class__}.'
+            statement_nodes = node.body
+        else:
+            reject('code must be either string or list of ast nodes')
+
+        # Check node types
+        for i, stmt in enumerate(statement_nodes):
+            if not isinstance(stmt, SUPPORTED_STATEMENT_TYPES):
+                msg = f'Statement {i} (zero-based) is a {stmt.__class__}.'
+                msg += 'Supported statement types in DisplayLang are: '
+                msg += ', '.join(str(t.__class__) for t in SUPPORTED_STATEMENT_TYPES)
                 reject(msg)
-
-        statement_nodes = node.body
 
         self.evaluator.set_local_vars(local_vars)
 
         def failed_to_return_string():
-            msg = 'DisplayLang code failed to return a string.'
-            raise ControlledEvaluationException(msg)
+            if require_returned_str:
+                msg = 'DisplayLang code failed to return a string.'
+                raise ControlledEvaluationException(msg)
 
         for node in statement_nodes:
             try:
@@ -355,6 +487,10 @@ class DisplayLangProcessor:
             # Re-raise exceptions we have deliberately raised.
             except ControlledEvaluationException as ce:
                 raise ce from None
+            except DisplayLangBreakException as e:
+                raise e from None
+            except DisplayLangContinueException as e:
+                raise e from None
             # After that, we need a catch-all, since the Builder will attempt
             # constructions based on the user's (restricted) Python code, which
             # could easily contain any manner of runtime Python error. E.g. if the
@@ -373,6 +509,8 @@ class DisplayLangProcessor:
                 return val, local_vars
 
         failed_to_return_string()
+
+        return None, local_vars
 
 
 def make_displaylang_processor(basic_vars,
@@ -439,7 +577,8 @@ def process_displaylang(code, basic_vars, local_vars,
                         abstract_function_classes=None,
                         abstract_relation_classes=None,
                         max_len=0,
-                        max_depth=-1):
+                        max_depth=-1,
+                        require_returned_str=True):
     p = make_displaylang_processor(
         basic_vars, allowed_callables, add_builtins=add_builtins,
         allow_local_var_calls=allow_local_var_calls,
@@ -447,7 +586,8 @@ def process_displaylang(code, basic_vars, local_vars,
         abstract_relation_classes=abstract_relation_classes,
         max_len=max_len, max_depth=max_depth
     )
-    return p.process(code, local_vars)
+    return p.process(code, local_vars, require_returned_str=require_returned_str)
+
 
 # A basic DisplayLangProcessor, supporting the built-in functions and methods:
 basic_displaylang_processor = make_displaylang_processor(
