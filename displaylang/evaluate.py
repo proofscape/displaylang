@@ -391,10 +391,7 @@ class ControlledEvaluator(ast.NodeTransformer):
             logging.info('<called as local var>')
             return F(*A, **K)
 
-        # Here, I'm adding the `F.evaluator is self` check just as a sort of security measure.
-        # Don't know if it's really needed or not, but seems like a good check, so that we're
-        # not somehow passed some renegade `NestedCodeBlockProcessor`.
-        if isinstance(F, NestedCodeBlockProcessor) and F.evaluator is self:
+        if isinstance(F, NestedCodeBlockProcessor):
             logging.info('<called as NestedCodeBlockProcessor>')
             return F(*A, **K)
 
