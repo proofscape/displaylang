@@ -214,6 +214,11 @@ for a, b in zip([1, 2, 3], [1, 4, 9]):
 return str(n)
 """
 
+build_22 = """
+foo = lambda a, b, c=7, d=11: b + c + d + 2*a 
+return str(foo(3, 5))
+"""
+
 @pytest.mark.parametrize('code, s_exp, d_exp', [
     [build_00, 'foobar', {'s': 'foo', 't': 'foobar'}],
     [build_01, '10', {'a': 5, 'b': 10}],
@@ -237,6 +242,7 @@ return str(n)
     [build_19, '8', {'n': 8, 'a': 2, 'b': 4}],
     [build_20, '1', {'n': 1, 'a': 3, 'b': 9}],
     [build_21, '6', {'n': 6, 'a': 3, 'b': 9}],
+    [build_22, '29', None],
 ])
 def test_build(code, s_exp, d_exp):
     s, d = process_displaylang(code, {}, {}, [], add_builtins=True)

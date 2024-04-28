@@ -69,9 +69,6 @@ class DisplayLangEvaluator(ExpressionEvaluator):
     def visit_ImportFrom(self, node):
         reject('Import statements are not allowed.', node)
 
-    def visit_Lambda(self, node):
-        reject('Lambdas are not supported.', node)
-
     ###########################################################################
     # Supported statement types.
     # (ast.Expr is already supported in our subclass.)
@@ -279,6 +276,13 @@ class DisplayLangEvaluator(ExpressionEvaluator):
         name = node.name
         self.add_current_name(node.name, p)
         return Assignment(name, p)
+
+    def visit_Lambda(self, node):
+        self.recurse(node, fields=['args'])
+        code = [ast.Return(node.body)]
+        p = DisplayLangNestedCodeBlockProcessor(self, code,
+                                                signature=node.args, return_just_value=True)
+        return p
 
     def visit_arguments(self, node):
         self.recurse(node)
