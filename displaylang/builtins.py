@@ -32,11 +32,14 @@ from .allow import (
 # in `process_displaylang()` if you set `add_builtins=True` there. They will
 # also be added to the set of allowed callables in this case.
 basic_callables = [
+    c(enumerate, [Any]),
     c(len, [
         [Iterable],
         [s.ANY],
     ]),
+    c(list, [Any]),
     c(range, [t(int)]),
+    c(reversed, [Any]),
     c(str, [Any]),
     c(sum, [
         [Sequence],
@@ -49,6 +52,8 @@ basic_callables = [
 # added to the set of allowed callables when you set `add_builtins=True`
 # in `process_displaylang()`.
 other_callables = [
+    c(dict.items, [], method_of=dict),
+
     c(list.append, [Any], method_of=list),
     c(list.extend, [Sequence], method_of=list),
 
