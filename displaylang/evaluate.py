@@ -232,6 +232,12 @@ class ControlledEvaluator(ast.NodeTransformer):
         # The problem with `map` is that it carries out a function call which we do
         # not get to visit, meaning it gets around the safety provided by our
         # `visit_Call()` method. Display authors should use comprehensions instead.
+        # FIXME:
+        #  Maybe we should just make the name `map` point to a function of our
+        #  own, which will do the same thing, but perform the function calls
+        #  using our safe evaluator.
+        #  ...In the same way, maybe `exec` and `eval` could just point to our
+        #  own safe executor and evaluator.
         map: "`map` is not supported. Use a list comprehension instead.",
     }
 
